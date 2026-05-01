@@ -9,9 +9,11 @@ export default function SqlConsole() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [tables, setTables] = useState([]);
+  const [recipes, setRecipes] = useState({});
+  const [activeTab, setActiveTab] = useState('tables'); // 'tables' or 'recipes'
   const [editingCell, setEditingCell] = useState(null); // { rowIndex, colName }
 
-  const getBackendUrl = () => `http://${window.location.hostname}:8081/api/sql`;
+  const getBackendUrl = (path = '/api/sql') => `http://${window.location.hostname}:8081${path}`;
 
   const fetchTables = useCallback(async () => {
     try {
@@ -29,9 +31,34 @@ export default function SqlConsole() {
     }
   }, []);
 
+  const fetchRecipes = useCallback(async () => {
+    try {
+      const res = await fetch(getBackendUrl('/api/recipes'));
+      if (res.ok) {
+        const data = await res.json();
+        setRecipes(data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch recipes:', err);
+    }
+  }, []);
+
   useEffect(() => {
     fetchTables();
-  }, [fetchTables]);
+    fetchRecipes();
+  }, [fetchTables, fetchRecipes]);
+
+  const loadRecipe = async (chapter, filename) => {
+    try {
+      const res = await fetch(getBackendUrl(`/api/recipes/${chapter}/${filename}`));
+      if (res.ok) {
+        const data = await res.json();
+        setSql(data.content);
+      }
+    } catch (err) {
+      alert('Failed to load recipe: ' + err.message);
+    }
+  };
 
   const executeSql = async (overrideSql = null) => {
     const query = overrideSql || sql;
@@ -141,27 +168,57 @@ export default function SqlConsole() {
     <div className="w-full max-w-6xl flex flex-col gap-6">
       <div className="flex flex-col md:flex-row gap-4 h-[500px]">
         <div className="w-full md:w-64 border rounded-xl bg-gray-50 shadow-md flex flex-col overflow-hidden">
-          <div className="p-3 bg-gray-100 border-b font-bold text-sm text-gray-700 flex justify-between items-center text-black">
-            <span>テーブル一覧</span>
-            <button onClick={fetchTables} className="text-[10px] bg-white border px-1 rounded hover:bg-gray-50 text-black">更新</button>
+          <div className="bg-gray-100 border-b flex">
+            <button 
+              onClick={() => setActiveTab('tables')}
+              className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'tables' ? 'bg-white text-blue-600 border-r' : 'text-gray-500 hover:bg-gray-50 border-r'}`}
+            >
+              テーブル
+            </button>
+            <button 
+              onClick={() => setActiveTab('recipes')}
+              className={`flex-1 p-3 text-sm font-bold transition-colors ${activeTab === 'recipes' ? 'bg-white text-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}
+            >
+              レシピ
+            </button>
           </div>
           <div className="flex-1 overflow-y-auto p-2">
-            <ul className="space-y-1">
-              {tables.map(table => (
-                <li key={table} className="group">
-                  <div className="flex items-center justify-between p-2 rounded hover:bg-blue-50 cursor-pointer transition-colors"
-                    onClick={() => setSql('SELECT * FROM ' + table + ';')}>
-                    <span className="text-sm text-gray-700 font-mono">{table}</span>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); executeSql("SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = '" + table + "' ORDER BY ordinal_position;"); }}
-                      className="hidden group-hover:block text-[10px] text-blue-600 underline"
-                    >
-                      構造
-                    </button>
+            {activeTab === 'tables' ? (
+              <ul className="space-y-1">
+                {tables.map(table => (
+                  <li key={table} className="group">
+                    <div className="flex items-center justify-between p-2 rounded hover:bg-blue-50 cursor-pointer transition-colors"
+                      onClick={() => setSql('SELECT * FROM ' + table + ';')}>
+                      <span className="text-sm text-gray-700 font-mono">{table}</span>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); executeSql("SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = '" + table + "' ORDER BY ordinal_position;"); }}
+                        className="hidden group-hover:block text-[10px] text-blue-600 underline"
+                      >
+                        構造
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="space-y-4">
+                {Object.entries(recipes).map(([chapter, files]) => (
+                  <div key={chapter}>
+                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2">{chapter}</h3>
+                    <ul className="space-y-1">
+                      {(files as string[]).map(file => (
+                        <li key={file} className="group">
+                          <div className="p-2 rounded hover:bg-blue-50 cursor-pointer transition-colors"
+                            onClick={() => loadRecipe(chapter, file)}>
+                            <span className="text-xs text-gray-700 font-mono block truncate" title={file}>{file}</span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                </li>
-              ))}
-            </ul>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

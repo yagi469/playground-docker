@@ -11,3 +11,4 @@ demo/target/
 
 # Backups
 backup_*.tar.gz
+db_backup.sql
