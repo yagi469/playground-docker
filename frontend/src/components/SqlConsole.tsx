@@ -12,6 +12,8 @@ export default function SqlConsole() {
   const [recipes, setRecipes] = useState({});
   const [activeTab, setActiveTab] = useState('tables'); // 'tables' or 'recipes'
   const [editingCell, setEditingCell] = useState(null); // { rowIndex, colName }
+  const [saveName, setSaveName] = useState('');
+  const [saveChapter, setSaveChapter] = useState('MyRecipes');
 
   const getBackendUrl = (path = '/api/sql') => `http://${window.location.hostname}:8081${path}`;
 
@@ -162,6 +164,33 @@ export default function SqlConsole() {
     }
   };
 
+  const saveRecipeToBackend = async () => {
+    if (!saveName) {
+      alert('レシピ名を入力してください。');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(getBackendUrl(`/api/recipes/${encodeURIComponent(saveChapter)}/${encodeURIComponent(saveName)}`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: sql }),
+      });
+      if (res.ok) {
+        alert('レシピを保存しました。');
+        setSaveName('');
+        fetchRecipes();
+        setActiveTab('recipes');
+      } else {
+        throw new Error('保存に失敗しました。');
+      }
+    } catch (err) {
+      alert('エラー: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const columns = editedResults.length > 0 ? Object.keys(editedResults[0]) : [];
 
   return (
@@ -232,12 +261,33 @@ export default function SqlConsole() {
             className="flex-1 p-4 font-mono text-sm text-black bg-white focus:outline-none"
             placeholder="SQLを入力..."
           />
-          <div className="p-3 bg-white border-t flex gap-2">
+          <div className="p-3 bg-white border-t flex flex-wrap gap-2 items-center">
             <button onClick={() => executeSql()}
               disabled={loading}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-bold text-sm disabled:bg-gray-400 transition-colors">
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-bold text-sm disabled:bg-gray-400 transition-colors mr-2">
               実行
             </button>
+            <div className="flex-1 flex gap-2 items-center min-w-[200px]">
+              <input 
+                type="text" 
+                placeholder="フォルダ名 (例: MyRecipes)" 
+                value={saveChapter}
+                onChange={(e) => setSaveChapter(e.target.value)}
+                className="border p-2 text-xs rounded w-32 text-black"
+              />
+              <input 
+                type="text" 
+                placeholder="レシピ名" 
+                value={saveName}
+                onChange={(e) => setSaveName(e.target.value)}
+                className="border p-2 text-xs rounded flex-1 text-black"
+              />
+              <button onClick={saveRecipeToBackend}
+                disabled={loading || !sql}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded font-bold text-sm disabled:bg-gray-400 transition-colors whitespace-nowrap">
+                レシピに保存
+              </button>
+            </div>
           </div>
         </div>
       </div>

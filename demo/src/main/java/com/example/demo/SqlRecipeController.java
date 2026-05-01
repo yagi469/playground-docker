@@ -2,6 +2,8 @@ package com.example.demo;
 
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.http.ResponseEntity;
@@ -58,6 +60,40 @@ public class SqlRecipeController {
             Map<String, String> result = new HashMap<>();
             result.put("content", content);
             return ResponseEntity.ok(result);
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @PostMapping("/api/recipes/{chapter}/{filename}")
+    public ResponseEntity<Void> saveRecipe(
+            @PathVariable String chapter,
+            @PathVariable String filename,
+            @RequestBody Map<String, String> body) {
+        String content = body.get("content");
+        if (content == null) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        // ファイル名を安全な形式に変換（スペースをアンダースコアに、記号を除去など）
+        String sanitizedFilename = filename.replaceAll("[^a-zA-Z0-9\\s\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]", "")
+                                          .trim()
+                                          .replace(" ", "_");
+        
+        if (sanitizedFilename.isEmpty()) {
+            sanitizedFilename = "untitled";
+        }
+
+        String safeFilename = sanitizedFilename.endsWith(".sql") ? sanitizedFilename : sanitizedFilename + ".sql";
+
+        Path chapterPath = Paths.get(RECIPES_DIR, chapter);
+        try {
+            if (!Files.exists(chapterPath)) {
+                Files.createDirectories(chapterPath);
+            }
+            Path filePath = chapterPath.resolve(safeFilename);
+            Files.writeString(filePath, content);
+            return ResponseEntity.ok().build();
         } catch (IOException e) {
             return ResponseEntity.internalServerError().build();
         }
