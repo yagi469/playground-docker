@@ -1,0 +1,13 @@
+# Database data
+postgres_data/
+
+# Maven (Spring Boot)
+demo/target/
+
+# OS/IDE generated files
+.DS_Store
+.idea/
+.vscode/
+
+# Backups
+backup_*.tar.gz

@@ -1,0 +1,37 @@
+services:
+  demo:
+    image: sb-app
+    build:
+      context: .
+      dockerfile: demo/Dockerfile
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./demo:/app:cached
+      - ~/.m2:/root/.m2
+    environment:
+      - JAVA_OPTS=-Dspring.devtools.restart.enabled=true -Dspring.devtools.livereload.enabled=true
+    command: sh -c "mvn compile && (while true; do inotifywait -q -e modify,create,delete,move -r src/main/java; mvn compile; done) & mvn spring-boot:run"
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app:cached
+    environment:
+      - NODE_ENV=development
+    # Ensure next is accessible and listen on 0.0.0.0
+    command: sh -c "npm install && npx next dev -p 3000 -H 0.0.0.0"
+
+  db:
+    image: postgres:15.3-alpine3.18
+    environment:
+      - TZ=Asia/Tokyo
+    ports:
+      - 15432:5432
+    env_file:
+      - ./db/.env-dev
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
