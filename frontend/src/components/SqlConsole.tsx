@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import Editor, { loader } from '@monaco-editor/react';
 
 export default function SqlConsole() {
   const [sql, setSql] = useState('SELECT * FROM message;');
@@ -14,6 +15,11 @@ export default function SqlConsole() {
   const [editingCell, setEditingCell] = useState(null); // { rowIndex, colName }
   const [saveName, setSaveName] = useState('');
   const [saveChapter, setSaveChapter] = useState('MyRecipes');
+  
+  const tablesRef = useRef([]);
+  useEffect(() => {
+    tablesRef.current = tables;
+  }, [tables]);
 
   const getBackendUrl = (path = '/api/sql') => `http://${window.location.hostname}:8081${path}`;
 
@@ -26,7 +32,8 @@ export default function SqlConsole() {
       });
       if (res.ok) {
         const data = await res.json();
-        setTables(data.map(t => t.table_name));
+        const tableNames = data.map(t => t.table_name);
+        setTables(tableNames);
       }
     } catch (err) {
       console.error('Failed to fetch tables:', err);
@@ -49,6 +56,49 @@ export default function SqlConsole() {
     fetchTables();
     fetchRecipes();
   }, [fetchTables, fetchRecipes]);
+
+  const handleEditorDidMount = (editor, monaco) => {
+    // SQLキーワードの定義
+    const sqlKeywords = [
+      'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'LIMIT', 'ORDER BY', 'GROUP BY', 
+      'INSERT INTO', 'UPDATE', 'DELETE', 'VALUES', 'SET', 'JOIN', 'LEFT JOIN', 
+      'RIGHT JOIN', 'INNER JOIN', 'ON', 'AS', 'DISTINCT', 'COUNT', 'SUM', 'AVG', 
+      'MIN', 'MAX', 'IN', 'IS NULL', 'IS NOT NULL', 'LIKE', 'BETWEEN', 'EXISTS'
+    ];
+
+    // カスタム補完プロバイダーの登録
+    monaco.languages.registerCompletionItemProvider('sql', {
+      provideCompletionItems: (model, position) => {
+        const word = model.getWordUntilPosition(position);
+        const range = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: word.startColumn,
+          endColumn: word.endColumn,
+        };
+
+        const suggestions = [
+          // SQLキーワード
+          ...sqlKeywords.map(k => ({
+            label: k,
+            kind: monaco.languages.CompletionItemKind.Keyword,
+            insertText: k,
+            range: range,
+          })),
+          // DBのテーブル名
+          ...tablesRef.current.map(t => ({
+            label: t,
+            kind: monaco.languages.CompletionItemKind.Class,
+            insertText: t,
+            detail: 'Table',
+            range: range,
+          }))
+        ];
+
+        return { suggestions };
+      },
+    });
+  };
 
   const loadRecipe = async (chapter, filename) => {
     try {
@@ -192,9 +242,10 @@ export default function SqlConsole() {
   };
 
   const columns = editedResults.length > 0 ? Object.keys(editedResults[0]) : [];
+  const chapterList = Object.keys(recipes);
 
   return (
-    <div className="w-full max-w-6xl flex flex-col gap-6">
+    <div className="w-full max-w-6xl flex flex-col gap-6 text-black">
       <div className="flex flex-col md:flex-row gap-4 h-[500px]">
         <div className="w-full md:w-64 border rounded-xl bg-gray-50 shadow-md flex flex-col overflow-hidden">
           <div className="bg-gray-100 border-b flex">
@@ -252,15 +303,31 @@ export default function SqlConsole() {
         </div>
 
         <div className="flex-1 border rounded-xl bg-gray-50 shadow-md flex flex-col overflow-hidden">
-          <div className="p-3 bg-gray-100 border-b font-bold text-sm text-gray-700 text-black">
+          <div className="p-3 bg-gray-100 border-b font-bold text-sm text-gray-700">
             SQL エディタ
           </div>
-          <textarea
-            value={sql}
-            onChange={(e) => setSql(e.target.value)}
-            className="flex-1 p-4 font-mono text-sm text-black bg-white focus:outline-none"
-            placeholder="SQLを入力..."
-          />
+          <div className="flex-1 bg-white">
+            <Editor
+              height="100%"
+              defaultLanguage="sql"
+              value={sql}
+              onMount={handleEditorDidMount}
+              onChange={(value) => setSql(value || '')}
+              options={{
+                minimap: { enabled: false },
+                fontSize: 14,
+                wordWrap: 'on',
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                suggestOnTriggerCharacters: true,
+                quickSuggestions: {
+                  other: true,
+                  comments: false,
+                  strings: true
+                },
+              }}
+            />
+          </div>
           <div className="p-3 bg-white border-t flex flex-wrap gap-2 items-center">
             <button onClick={() => executeSql()}
               disabled={loading}
@@ -273,8 +340,14 @@ export default function SqlConsole() {
                 placeholder="フォルダ名 (例: MyRecipes)" 
                 value={saveChapter}
                 onChange={(e) => setSaveChapter(e.target.value)}
-                className="border p-2 text-xs rounded w-32 text-black"
+                list="chapters-datalist"
+                className="border p-2 text-xs rounded w-40 text-black"
               />
+              <datalist id="chapters-datalist">
+                {chapterList.map(chapter => (
+                  <option key={chapter} value={chapter} />
+                ))}
+              </datalist>
               <input 
                 type="text" 
                 placeholder="レシピ名" 
@@ -293,7 +366,7 @@ export default function SqlConsole() {
       </div>
 
       <div className="w-full border rounded-xl bg-gray-50 shadow-md min-h-[200px] flex flex-col overflow-hidden">
-        <div className="p-3 bg-gray-100 border-b font-bold text-sm text-gray-700 flex justify-between items-center text-black">
+        <div className="p-3 bg-gray-100 border-b font-bold text-sm text-gray-700 flex justify-between items-center">
           <span>実行結果 {editedResults.length > 0 && <span className="font-normal text-gray-500 ml-2">({editedResults.length} 件) - セルをクリックして編集</span>}</span>
         </div>
         <div className="flex-1 overflow-auto max-h-[400px]">
@@ -302,7 +375,7 @@ export default function SqlConsole() {
               {error}
             </div>
           ) : editedResults.length > 0 ? (
-            <table className="min-w-full divide-y divide-gray-200 border-collapse">
+            <table className="min-w-full divide-y divide-gray-200 border-collapse text-black">
               <thead className="bg-gray-50 sticky top-0">
                 <tr>
                   <th className="px-4 py-2 bg-gray-100 border w-20">操作</th>
@@ -313,11 +386,11 @@ export default function SqlConsole() {
                   ))}
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200 font-mono text-xs text-black">
+              <tbody className="bg-white divide-y divide-gray-200 font-mono text-xs">
                 {editedResults.map((row, i) => {
                   const isModified = JSON.stringify(row) !== JSON.stringify(results[i]);
                   return (
-                    <tr key={i} className={`hover:bg-gray-50 text-black ${isModified ? 'bg-yellow-50' : ''}`}>
+                    <tr key={i} className={`hover:bg-gray-50 ${isModified ? 'bg-yellow-50' : ''}`}>
                       <td className="px-2 py-1 border text-center">
                         {isModified && (
                           <button 
@@ -365,7 +438,7 @@ export default function SqlConsole() {
               </tbody>
             </table>
           ) : (
-            <div className="p-12 text-center text-gray-400 italic text-black">結果なし</div>
+            <div className="p-12 text-center text-gray-400 italic">結果なし</div>
           )}
         </div>
       </div>
