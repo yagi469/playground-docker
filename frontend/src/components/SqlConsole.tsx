@@ -1,27 +1,41 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import Editor, { loader } from '@monaco-editor/react';
+import dynamic from 'next/dynamic';
+import type { OnMount } from '@monaco-editor/react';
+
+const Editor = dynamic(() => import('@monaco-editor/react'), {
+  ssr: false,
+  loading: () => <div className="flex-1 flex items-center justify-center bg-gray-100 text-gray-400 animate-pulse">エディタを読み込み中...</div>,
+});
+
+type ResultValue = string | number | boolean | null | undefined;
+type ResultRow = Record<string, ResultValue>;
 
 export default function SqlConsole() {
   const [sql, setSql] = useState('SELECT * FROM message;');
-  const [results, setResults] = useState([]);
-  const [editedResults, setEditedResults] = useState([]);
+  const [results, setResults] = useState<ResultRow[]>([]);
+  const [editedResults, setEditedResults] = useState<ResultRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [tables, setTables] = useState([]);
-  const [recipes, setRecipes] = useState({});
-  const [activeTab, setActiveTab] = useState('tables'); // 'tables' or 'recipes'
-  const [editingCell, setEditingCell] = useState(null); // { rowIndex, colName }
+  const [error, setError] = useState<string | null>(null);
+  const [tables, setTables] = useState<string[]>([]);
+  const [recipes, setRecipes] = useState<Record<string, string[]>>({});
+  const [activeTab, setActiveTab] = useState<'tables' | 'recipes'>('tables'); // 'tables' or 'recipes'
+  const [editingCell, setEditingCell] = useState<{ rowIndex: number; colName: string } | null>(null); // { rowIndex, colName }
   const [saveName, setSaveName] = useState('');
   const [saveChapter, setSaveChapter] = useState('MyRecipes');
   
-  const tablesRef = useRef([]);
+  const tablesRef = useRef<string[]>([]);
   useEffect(() => {
     tablesRef.current = tables;
   }, [tables]);
 
-  const getBackendUrl = (path = '/api/sql') => `http://${window.location.hostname}:8081${path}`;
+  const getBackendUrl = (path = '/api/sql') => {
+    if (typeof window !== 'undefined') {
+      return `http://${window.location.hostname}:8081${path}`;
+    }
+    return path;
+  };
 
   const fetchTables = useCallback(async () => {
     try {
@@ -32,7 +46,7 @@ export default function SqlConsole() {
       });
       if (res.ok) {
         const data = await res.json();
-        const tableNames = data.map(t => t.table_name);
+        const tableNames = data.map((t: { table_name: string }) => t.table_name);
         setTables(tableNames);
       }
     } catch (err) {
@@ -53,22 +67,33 @@ export default function SqlConsole() {
   }, []);
 
   useEffect(() => {
-    fetchTables();
-    fetchRecipes();
+    const loadInitialData = async () => {
+      await fetchTables();
+      await fetchRecipes();
+    };
+    loadInitialData();
   }, [fetchTables, fetchRecipes]);
 
-  const handleEditorDidMount = (editor, monaco) => {
-    // SQLキーワードの定義
+  const handleEditorDidMount: OnMount = (editor, monaco) => {
+    // SQLキーワードの定義 (大文字)
     const sqlKeywords = [
       'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'LIMIT', 'ORDER BY', 'GROUP BY', 
       'INSERT INTO', 'UPDATE', 'DELETE', 'VALUES', 'SET', 'JOIN', 'LEFT JOIN', 
-      'RIGHT JOIN', 'INNER JOIN', 'ON', 'AS', 'DISTINCT', 'COUNT', 'SUM', 'AVG', 
-      'MIN', 'MAX', 'IN', 'IS NULL', 'IS NOT NULL', 'LIKE', 'BETWEEN', 'EXISTS'
+      'RIGHT JOIN', 'INNER JOIN', 'ON', 'AS', 'DISTINCT', 'IN', 'IS NULL', 
+      'IS NOT NULL', 'LIKE', 'BETWEEN', 'EXISTS', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
+      'WITH', 'RECURSIVE', 'UNION', 'ALL', 'HAVING'
+    ];
+
+    // SQL関数の定義 (小文字)
+    const sqlFunctions = [
+      'count', 'sum', 'avg', 'min', 'max', 'substring', 'coalesce', 'concat', 
+      'cast', 'now', 'date_trunc', 'extract', 'round', 'length', 'upper', 'lower',
+      'replace', 'trim', 'to_char', 'to_date', 'to_number', 'array_agg', 'string_agg'
     ];
 
     // カスタム補完プロバイダーの登録
     monaco.languages.registerCompletionItemProvider('sql', {
-      provideCompletionItems: (model, position) => {
+      provideCompletionItems: (model: { getWordUntilPosition: (pos: { lineNumber: number; column: number }) => { startColumn: number; endColumn: number } }, position: { lineNumber: number; column: number }) => {
         const word = model.getWordUntilPosition(position);
         const range = {
           startLineNumber: position.lineNumber,
@@ -83,6 +108,14 @@ export default function SqlConsole() {
             label: k,
             kind: monaco.languages.CompletionItemKind.Keyword,
             insertText: k,
+            range: range,
+          })),
+          // SQL関数
+          ...sqlFunctions.map(f => ({
+            label: f,
+            kind: monaco.languages.CompletionItemKind.Function,
+            insertText: f,
+            detail: 'Function',
             range: range,
           })),
           // DBのテーブル名
@@ -100,7 +133,7 @@ export default function SqlConsole() {
     });
   };
 
-  const loadRecipe = async (chapter, filename) => {
+  const loadRecipe = async (chapter: string, filename: string) => {
     try {
       const res = await fetch(getBackendUrl(`/api/recipes/${chapter}/${filename}`));
       if (res.ok) {
@@ -108,11 +141,12 @@ export default function SqlConsole() {
         setSql(data.content);
       }
     } catch (err) {
-      alert('Failed to load recipe: ' + err.message);
+      const message = err instanceof Error ? err.message : String(err);
+      alert('Failed to load recipe: ' + message);
     }
   };
 
-  const executeSql = async (overrideSql = null) => {
+  const executeSql = async (overrideSql: string | null = null) => {
     const query = overrideSql || sql;
     setLoading(true);
     setError(null);
@@ -129,9 +163,12 @@ export default function SqlConsole() {
       }
       setResults(data);
       setEditedResults(JSON.parse(JSON.stringify(data))); // Deep copy for editing
-      if (!query.toLowerCase().trim().startsWith('select')) fetchTables();
+      if (!query.toLowerCase().trim().startsWith('select')) {
+        await fetchTables();
+      }
     } catch (err) {
-      setError(err.message);
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
       setResults([]);
       setEditedResults([]);
     } finally {
@@ -139,13 +176,13 @@ export default function SqlConsole() {
     }
   };
 
-  const handleCellChange = (rowIndex, colName, value) => {
+  const handleCellChange = (rowIndex: number, colName: string, value: ResultValue) => {
     const newData = [...editedResults];
     newData[rowIndex][colName] = value;
     setEditedResults(newData);
   };
 
-  const saveRow = async (rowIndex) => {
+  const saveRow = async (rowIndex: number) => {
     const originalRow = results[rowIndex];
     const editedRow = editedResults[rowIndex];
     
@@ -159,7 +196,7 @@ export default function SqlConsole() {
 
     // Find a suitable key column
     const potentialKeys = ['id', `${tableName}_id`.toLowerCase(), 'user_id'];
-    let keyCol = Object.keys(editedRow).find(key => potentialKeys.includes(key.toLowerCase()));
+    const keyCol = Object.keys(editedRow).find(key => potentialKeys.includes(key.toLowerCase()));
 
     // Build UPDATE query
     const updates = Object.keys(editedRow)
@@ -208,7 +245,8 @@ export default function SqlConsole() {
       await executeSql();
       alert('保存しました。');
     } catch (err) {
-      alert('エラー: ' + err.message);
+      const message = err instanceof Error ? err.message : String(err);
+      alert('エラー: ' + message);
     } finally {
       setLoading(false);
     }
@@ -235,7 +273,8 @@ export default function SqlConsole() {
         throw new Error('保存に失敗しました。');
       }
     } catch (err) {
-      alert('エラー: ' + err.message);
+      const message = err instanceof Error ? err.message : String(err);
+      alert('エラー: ' + message);
     } finally {
       setLoading(false);
     }
@@ -414,7 +453,7 @@ export default function SqlConsole() {
                             <input 
                               autoFocus
                               className="w-full h-full px-4 py-2 focus:outline-blue-500 border-none bg-blue-50 text-black"
-                              value={row[col] === null ? '' : row[col]}
+                              value={row[col] === null ? '' : String(row[col])}
                               onChange={(e) => handleCellChange(i, col, e.target.value)}
                               onBlur={() => setEditingCell(null)}
                               onKeyDown={(e) => {

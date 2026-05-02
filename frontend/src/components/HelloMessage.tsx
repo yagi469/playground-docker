@@ -7,8 +7,7 @@ export default function HelloMessage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // 確実に疎通させるため、IPを直接指定
-    const backendUrl = `http://${window.location.hostname}:8081/` ;
+    const backendUrl = '/backend-root';
     
     console.log('Fetching from backend:', backendUrl);
 

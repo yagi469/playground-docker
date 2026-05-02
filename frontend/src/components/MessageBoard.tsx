@@ -14,7 +14,10 @@ export default function MessageBoard() {
   const [error, setError] = useState<string | null>(null);
 
   const getBackendUrl = () => {
-    return `http://${window.location.hostname}:8081/api/messages`;
+    if (typeof window !== 'undefined') {
+      return `http://${window.location.hostname}:8081/api/messages`;
+    }
+    return '/api/messages';
   };
 
   const fetchMessages = useCallback(async () => {
@@ -26,7 +29,7 @@ export default function MessageBoard() {
       const data = await res.json();
       setMessages(data);
       setError(null);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Fetch error:', err);
       setError(`接続エラー: バックエンドに接続できませんでした。`);
     } finally {
@@ -35,7 +38,10 @@ export default function MessageBoard() {
   }, []);
 
   useEffect(() => {
-    fetchMessages();
+    const init = async () => {
+      await fetchMessages();
+    };
+    init();
   }, [fetchMessages]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -53,8 +59,8 @@ export default function MessageBoard() {
       if (!res.ok) throw new Error('Failed to post message');
       
       setInputText('');
-      fetchMessages();
-    } catch (err: any) {
+      await fetchMessages();
+    } catch (err: unknown) {
       console.error('Post error:', err);
       alert('メッセージの送信に失敗しました。');
     }

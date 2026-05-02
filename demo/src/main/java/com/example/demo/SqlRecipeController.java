@@ -75,8 +75,8 @@ public class SqlRecipeController {
             return ResponseEntity.badRequest().build();
         }
 
-        // ファイル名を安全な形式に変換（スペースをアンダースコアに、記号を除去など）
-        String sanitizedFilename = filename.replaceAll("[^a-zA-Z0-9\\s\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]", "")
+        // ファイル名を安全な形式に変換（スペースをアンダースコアに、ハイフンや日本語は許可）
+        String sanitizedFilename = filename.replaceAll("[^a-zA-Z0-9\\s\\-_\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]", "")
                                           .trim()
                                           .replace(" ", "_");
         
