@@ -21,10 +21,12 @@ services:
       - "3000:3000"
     volumes:
       - ./frontend:/app:cached
+      - ./spring-book-src-master:/spring-book:cached
+      - ~/.m2:/root/.m2
     environment:
       - NODE_ENV=development
     # Ensure next is accessible and listen on 0.0.0.0
-    command: sh -c "npm install && npx next dev -p 3000 -H 0.0.0.0"
+    command: sh -c "apk add --no-cache maven openjdk17 && (cd /spring-book/0001-training-common && mvn install -DskipTests) && (cd /spring-book/0002-shopping-common && mvn install -DskipTests) && npm install && npx next dev -p 3000 -H 0.0.0.0"
 
   db:
     image: postgres:15.3-alpine3.18

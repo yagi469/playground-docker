@@ -43,6 +43,11 @@ export default function RootLayout({
                   SQLエディタ
                 </Link>
               </li>
+              <li>
+                <Link href="/spring-book" className="text-gray-600 hover:text-blue-600 font-medium transition-colors">
+                  Spring-Bookエディタ
+                </Link>
+              </li>
             </ul>
           </nav>
         </header>

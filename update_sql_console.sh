@@ -9,7 +9,7 @@ export default function SqlConsole() {
   const [error, setError] = useState(null);
   const [tables, setTables] = useState([]);
 
-  const getBackendUrl = () => 'http://35.77.64.182:8081/api/sql';
+  const getBackendUrl = () => 'http://3.112.83.83:8081/api/sql';
 
   const fetchTables = useCallback(async () => {
     try {
