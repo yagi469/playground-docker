@@ -46,3 +46,10 @@ services:
       - ./spring-book-src-master:/app:cached
       - ~/.m2:/root/.m2
     command: tail -f /dev/null
+
+  python-env:
+    image: python:3.11-slim
+    working_dir: /workspace
+    volumes:
+      - ./python:/workspace:cached
+    command: tail -f /dev/null
