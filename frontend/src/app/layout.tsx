@@ -48,6 +48,11 @@ export default function RootLayout({
                   Spring-Bookエディタ
                 </Link>
               </li>
+              <li>
+                <Link href="/screen-to-md" className="text-gray-600 hover:text-purple-600 font-medium transition-colors">
+                  Screen to MD
+                </Link>
+              </li>
             </ul>
           </nav>
         </header>

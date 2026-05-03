@@ -23,7 +23,12 @@ export default function Home() {
           <h2 className="text-2xl font-bold mb-3 group-hover:text-blue-600">Spring-Book エディタ &rarr;</h2>
           <p className="text-gray-600 leading-relaxed">Spring Bootの学習プロジェクトをブラウザ上で閲覧・編集・実行できます。Mavenコマンドの実行結果も確認可能です。</p>
         </Link>
-        </div>
+
+        <Link href="/screen-to-md" className="group p-8 border rounded-2xl bg-gray-50 hover:bg-purple-50 hover:border-purple-200 transition-all shadow-sm">
+          <h2 className="text-2xl font-bold mb-3 group-hover:text-purple-600">Screen to Markdown &rarr;</h2>
+          <p className="text-gray-600 leading-relaxed">アプリや画面をキャプチャして、AIがその内容を解析しMarkdown形式に変換します。</p>
+        </Link>
+      </div>
 
       <footer className="mt-16 text-gray-400 text-sm">
         Built with Next.js (App Router), TypeScript, and Tailwind CSS.

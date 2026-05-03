@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import Editor from '@monaco-editor/react';
+import Editor, { type OnMount } from '@monaco-editor/react';
 
 interface FileNode {
   name: string;
@@ -21,6 +21,7 @@ export default function SpringBookEditor() {
   const [saving, setSaving] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const [wordWrap, setWordWrap] = useState<'on' | 'off'>('off');
 
   // Resizing state
   const [projectWidth, setProjectWidth] = useState(192); // 48 * 4
@@ -181,6 +182,12 @@ export default function SpringBookEditor() {
     return 'plaintext';
   };
 
+  const handleEditorDidMount: OnMount = (editor, monaco) => {
+    editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.KeyZ, () => {
+      setWordWrap(prev => (prev === 'on' ? 'off' : 'on'));
+    });
+  };
+
   return (
     <div className="flex h-[calc(100vh-100px)] w-full border rounded-xl overflow-hidden bg-white shadow-lg">
       {/* Project Sidebar */}
@@ -242,6 +249,14 @@ export default function SpringBookEditor() {
           >
             mvn run
           </button>
+          <div className="h-6 w-px bg-gray-300 mx-1" />
+          <button
+            onClick={() => setWordWrap(prev => (prev === 'on' ? 'off' : 'on'))}
+            className={`px-3 py-1 rounded text-sm font-bold transition-colors ${wordWrap === 'on' ? 'bg-blue-100 text-blue-700 border border-blue-300' : 'bg-gray-100 text-gray-600 border border-gray-300 hover:bg-gray-200'}`}
+            title="右端で折り返す (Alt+Z)"
+          >
+            折り返し {wordWrap === 'on' ? 'ON' : 'OFF'}
+          </button>
           <span className="ml-auto text-xs text-gray-500 font-mono truncate max-w-[300px]" title={selectedFile || ''}>
             {selectedFile || 'ファイル未選択'}
           </span>
@@ -259,9 +274,11 @@ export default function SpringBookEditor() {
             language={selectedFile ? getLanguage(selectedFile) : 'plaintext'}
             value={content}
             onChange={(val) => setContent(val || '')}
+            onMount={handleEditorDidMount}
             options={{
               minimap: { enabled: false },
               fontSize: 14,
+              wordWrap: wordWrap,
               scrollBeyondLastLine: false,
               automaticLayout: true,
             }}
