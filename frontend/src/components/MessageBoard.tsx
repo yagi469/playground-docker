@@ -14,9 +14,6 @@ export default function MessageBoard() {
   const [error, setError] = useState<string | null>(null);
 
   const getBackendUrl = () => {
-    if (typeof window !== 'undefined') {
-      return `http://${window.location.hostname}:8081/api/messages`;
-    }
     return '/api/messages';
   };
 

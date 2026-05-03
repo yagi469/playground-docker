@@ -31,9 +31,6 @@ export default function SqlConsole() {
   }, [tables]);
 
   const getBackendUrl = (path = '/api/sql') => {
-    if (typeof window !== 'undefined') {
-      return `http://${window.location.hostname}:8081${path}`;
-    }
     return path;
   };
 
