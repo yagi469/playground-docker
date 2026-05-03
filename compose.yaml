@@ -36,3 +36,13 @@ services:
       - ./db/.env-dev
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
+
+  spring-book:
+    image: maven:3.9-eclipse-temurin-17
+    working_dir: /app
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./spring-book-src-master:/app:cached
+      - ~/.m2:/root/.m2
+    command: tail -f /dev/null
