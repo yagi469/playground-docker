@@ -9,6 +9,8 @@ interface CaptureResult {
   markdown: string;
   status: 'loading' | 'done' | 'error';
   error?: string;
+  progress?: number;
+  statusMessage?: string;
 }
 
 type AutoMode = 'off' | 'timer' | 'smart';
@@ -31,6 +33,7 @@ export default function ScreenToMarkdown() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const autoCaptureRef = useRef<NodeJS.Timeout | null>(null);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
+  const lastMarkdownRef = useRef<string>('');
   
   // Smart Capture Refs
   const lastImageDataRef = useRef<Uint8ClampedArray | null>(null);
@@ -38,6 +41,33 @@ export default function ScreenToMarkdown() {
   const isTransitioningRef = useRef(false);
   const monitoringLoopRef = useRef<number | null>(null);
   const processingCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const fetchWithRetry = async (url: string, options: RequestInit, maxRetries = 3, initialDelay = 1000) => {
+    let lastError: any;
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const res = await fetch(url, options);
+        if (res.ok) return res;
+        
+        const data = await res.json();
+        if (res.status !== 503 && res.status !== 429) {
+          throw new Error(data.error || `Request failed with status ${res.status}`);
+        }
+        
+        lastError = new Error(data.error || `Service Unavailable (${res.status})`);
+        console.warn(`Retry ${i + 1}/${maxRetries} due to ${res.status}. Waiting ${initialDelay * Math.pow(2, i)}ms...`);
+        await new Promise(resolve => setTimeout(resolve, initialDelay * Math.pow(2, i)));
+      } catch (err: any) {
+        lastError = err;
+        if (err.message && !err.message.includes('503') && !err.message.includes('429')) {
+          throw err;
+        }
+        const delay = initialDelay * Math.pow(2, i);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    throw lastError;
+  };
 
   const startCapture = async () => {
     try {
@@ -96,15 +126,18 @@ export default function ScreenToMarkdown() {
     setCaptures(prev => [...prev, newCapture]);
 
     try {
-      const res = await fetch('/api/vision', {
+      const res = await fetchWithRetry('/api/vision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: base64Image, translate: isTranslate }),
+        body: JSON.stringify({ 
+          image: base64Image, 
+          translate: isTranslate,
+          previousContext: lastMarkdownRef.current
+        }),
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Conversion failed');
-
+      lastMarkdownRef.current = data.markdown;
       setCaptures(prev => prev.map(c => 
         c.id === newId ? { ...c, markdown: data.markdown, status: 'done' } : c
       ));
@@ -225,8 +258,59 @@ export default function ScreenToMarkdown() {
   }, [previewId]);
 
   const clearAll = () => {
-    if (confirm('Are you sure you want to clear all captures?')) setCaptures([]);
+    if (confirm('Are you sure you want to clear all captures?')) {
+      setCaptures([]);
+      lastMarkdownRef.current = '';
+    }
   };
+
+  const retryCapture = useCallback(async (id: string) => {
+    setCaptures(prev => {
+      const capture = prev.find(c => c.id === id);
+      if (!capture || capture.status === 'loading') return prev;
+
+      // Find index and previous context
+      const index = prev.findIndex(c => c.id === id);
+      const previousMarkdown = index > 0 ? prev[index - 1].markdown : '';
+
+      // Trigger the API call in the background
+      (async () => {
+        try {
+          const res = await fetchWithRetry('/api/vision', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              image: capture.image, 
+              translate: isTranslate,
+              previousContext: previousMarkdown
+            }),
+          });
+
+          const data = await res.json();
+          setCaptures(current => {
+            const updated = current.map(c => 
+              c.id === id ? { ...c, markdown: data.markdown, status: 'done' } : c
+            );
+            // If this is the last one, update lastMarkdownRef
+            if (index === updated.length - 1) {
+              lastMarkdownRef.current = data.markdown;
+            }
+            return updated;
+          });
+        } catch (err: any) {
+          console.error("Retry Error:", err);
+          setCaptures(current => current.map(c => 
+            c.id === id ? { ...c, status: 'error', error: err.message } : c
+          ));
+        }
+      })();
+
+      // Return state with status 'loading'
+      return prev.map(c => 
+        c.id === id ? { ...c, status: 'loading', error: undefined } : c
+      );
+    });
+  }, [isTranslate]);
 
   const copyToClipboard = () => {
     const combinedMarkdown = captures.filter(c => c.status === 'done').map(c => c.markdown).join('\n\n---\n\n');
@@ -399,89 +483,99 @@ export default function ScreenToMarkdown() {
       return;
     }
 
-    try {
-      // Dynamic import to avoid SSR issues
-      const pdfjsLib = await import('pdfjs-dist');
-      
-      // Set up worker
-      pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+    // Limit file size to 20MB for inlineData
+    if (file.size > 20 * 1024 * 1024) {
+      alert('File size exceeds 20MB. Please use a smaller PDF or a different method.');
+      return;
+    }
 
-      // Polyfill for DOMMatrix if missing (needed by PDF.js in some environments)
-      if (typeof window !== 'undefined' && !window.DOMMatrix) {
-        if ((window as any).WebKitCSSMatrix) {
-          (window as any).DOMMatrix = (window as any).WebKitCSSMatrix;
-        } else {
-          // Fallback if both are missing - PDF.js might still fail, but we try
-          console.warn("DOMMatrix and WebKitCSSMatrix are both missing.");
-        }
-      }
-
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      const targetPages = parsePageRange(pdfPageRange, pdf.numPages);
-      
-      if (targetPages.length === 0) {
-        alert('No valid pages selected.');
-        return;
-      }
-
-      if (targetPages.length > 20) {
-        if (!confirm(`You are about to process ${targetPages.length} pages. This might take a while. Continue?`)) return;
-      }
-
-      for (const pageNum of targetPages) {
-        const page = await pdf.getPage(pageNum);
-        const viewport = page.getViewport({ scale: 2.0 }); // High quality
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        if (!context) continue;
-
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
-
-        await page.render({ canvasContext: context, viewport }).promise;
-        const base64Image = canvas.toDataURL('image/png');
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const base64Data = (reader.result as string).split(',')[1];
         
         const newId = Math.random().toString(36).substr(2, 9);
         const newCapture: CaptureResult = {
           id: newId,
-          image: base64Image,
+          image: '/file.svg',
           markdown: '',
-          status: 'loading'
+          status: 'loading',
+          progress: 5,
+          statusMessage: 'Reading PDF...'
         };
         setCaptures(prev => [...prev, newCapture]);
 
-        // Process this page
-        (async () => {
-          try {
-            const res = await fetch('/api/vision', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                image: base64Image, 
-                translate: isTranslate,
-                mimeType: 'image/png' // We converted PDF page to PNG
-              }),
-            });
-
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Conversion failed');
-
-            setCaptures(prev => prev.map(c => 
-              c.id === newId ? { ...c, markdown: `### Page ${pageNum}\n\n${data.markdown}`, status: 'done' } : c
-            ));
-          } catch (err: any) {
-            console.error(`Error processing page ${pageNum}:`, err);
-            setCaptures(prev => prev.map(c => 
-              c.id === newId ? { ...c, status: 'error', error: err.message } : c
-            ));
+        // Generate a thumbnail for the history sidebar
+        try {
+          const pdfjsLib = await import('pdfjs-dist');
+          pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+          
+          const arrayBuffer = await file.arrayBuffer();
+          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+          const page = await pdf.getPage(1);
+          const viewport = page.getViewport({ scale: 0.5 });
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          if (context) {
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            await page.render({ canvasContext: context, viewport }).promise;
+            const thumbnail = canvas.toDataURL('image/png');
+            setCaptures(prev => prev.map(c => c.id === newId ? { ...c, image: thumbnail, progress: 20, statusMessage: 'Analyzing...' } : c));
           }
-        })();
+        } catch (thumbErr) {
+          console.warn("Failed to generate PDF thumbnail:", thumbErr);
+        }
+
+        setCaptures(prev => prev.map(c => c.id === newId ? { ...c, progress: 30, statusMessage: 'Sending to Gemini...' } : c));
+
+        // Start a fake progress timer for the translation phase (30% to 90%)
+        const progressInterval = setInterval(() => {
+          setCaptures(prev => prev.map(c => {
+            if (c.id === newId && c.status === 'loading' && c.progress && c.progress < 90) {
+              return { ...c, progress: c.progress + 1, statusMessage: 'Translating...' };
+            }
+            return c;
+          }));
+        }, 800);
+
+        const res = await fetchWithRetry('/api/vision', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            image: base64Data, 
+            translate: isTranslate,
+            mimeType: 'application/pdf',
+            pageRange: pdfPageRange,
+            previousContext: lastMarkdownRef.current
+          }),
+        });
+
+        clearInterval(progressInterval);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+
+        lastMarkdownRef.current = data.markdown;
+
+        setCaptures(prev => prev.map(c => 
+          c.id === newId ? { 
+            ...c, 
+            markdown: `## PDF: ${file.name}\n\n${data.markdown}`, 
+            status: 'done', 
+            progress: 100, 
+            statusMessage: 'Completed' 
+          } : c
+        ));
+      } catch (err: any) {
+        console.error("PDF Processing Error:", err);
+        setCaptures(prev => prev.map(c => 
+          c.status === 'loading' ? { ...c, status: 'error', error: err.message, progress: 100, statusMessage: 'Failed' } : c
+        ));
+        alert("Failed to process PDF: " + err.message);
       }
-    } catch (err: any) {
-      console.error("PDF Loading Error:", err);
-      alert("Failed to load PDF: " + err.message);
-    }
+    };
+    reader.onerror = () => alert("Failed to read file.");
+    reader.readAsDataURL(file);
     
     // Reset file input
     e.target.value = '';
@@ -580,7 +674,7 @@ export default function ScreenToMarkdown() {
               captures.map((c, i) => (
                 <div 
                   key={c.id} 
-                  className={`${styles.captureItem} ${draggedIndex === i ? styles.dragging : ''} ${dragOverIndex === i ? styles.dragOver : ''}`}
+                  className={`${styles.captureItem} ${draggedIndex === i ? styles.dragging : ''} ${dragOverIndex === i ? styles.dragOver : ''} ${c.status === 'error' ? styles.hasError : ''}`}
                   draggable
                   onDragStart={() => handleDragStart(i)}
                   onDragEnter={() => handleDragEnter(i)}
@@ -589,10 +683,29 @@ export default function ScreenToMarkdown() {
                   onDragEnd={handleDragEnd}
                 >
                   <button className={styles.deleteBtn} onClick={(e) => { e.stopPropagation(); deleteCapture(c.id); }} title="Remove this capture">×</button>
+                  <button className={styles.reloadBtn} onClick={(e) => { e.stopPropagation(); retryCapture(c.id); }} title="Retry processing this capture">⟳</button>
                   <img src={c.image} alt={`Capture ${i+1}`} className={styles.thumbnail} onClick={() => setPreviewId(c.id)} style={{ cursor: 'zoom-in', opacity: 1 }} />
-                  <div className={styles.statusOverlay} onClick={() => setPreviewId(c.id)} style={{ cursor: 'zoom-in' }}>
-                    {c.status === 'loading' && <div className={styles.spinner} />}
-                    {c.status === 'error' && <span title={c.error}>⚠️</span>}
+                  <div className={styles.statusOverlay} onClick={() => setPreviewId(c.id)} style={{ cursor: 'zoom-in', flexDirection: 'column' }}>
+                    {c.status === 'loading' && (
+                      <>
+                        <div className={styles.spinner} />
+                        <div className={styles.statusMessage}>{c.statusMessage}</div>
+                        <div className={styles.progressBarContainer}>
+                          <div className={styles.progressBar} style={{ width: `${c.progress || 0}%` }} />
+                        </div>
+                      </>
+                    )}
+                    {c.status === 'error' && (
+                      <>
+                        <span title={c.error}>⚠️</span>
+                        <button 
+                          className={styles.errorRetryBtn} 
+                          onClick={(e) => { e.stopPropagation(); retryCapture(c.id); }}
+                        >
+                          Retry
+                        </button>
+                      </>
+                    )}
                     {c.status === 'done' && <span>✅</span>}
                   </div>
                   <div className={`${styles.badge} ${c.status === 'loading' ? styles.badgeLoading : c.status === 'done' ? styles.badgeDone : styles.badgeError}`}>{i + 1}</div>
