@@ -21,7 +21,7 @@ export default function ScreenToMarkdown() {
   const [error, setError] = useState<string | null>(null);
   const [autoMode, setAutoMode] = useState<AutoMode>('off');
   const [countdown, setCountdown] = useState(5);
-  const [smartStatus, setSmartStatus] = useState<'Watching...' | 'Motion detected...' | 'Settling...' | 'Capturing!'>('Watching...');
+  const [smartStatus, setSmartStatus] = useState<'監視中...' | '動きを検知...' | '静止待ち...' | 'キャプチャ実行!'>('監視中...');
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [isTranslate, setIsTranslate] = useState(false);
   const [pdfPageRange, setPdfPageRange] = useState('');
@@ -203,23 +203,23 @@ export default function ScreenToMarkdown() {
           
           if (changeRatio > 0.05) {
             isTransitioningRef.current = true;
-            setSmartStatus('Motion detected...');
+            setSmartStatus('動きを検知...');
             if (settleTimerRef.current) {
               clearTimeout(settleTimerRef.current);
               settleTimerRef.current = null;
             }
           } else if (isTransitioningRef.current) {
-            setSmartStatus('Settling...');
+            setSmartStatus('静止待ち...');
             if (!settleTimerRef.current) {
               settleTimerRef.current = setTimeout(() => {
-                setSmartStatus('Capturing!');
+                setSmartStatus('キャプチャ実行!');
                 captureAndAppend();
                 isTransitioningRef.current = false;
                 settleTimerRef.current = null;
               }, 1200);
             }
           } else {
-            setSmartStatus('Watching...');
+            setSmartStatus('監視中...');
           }
         }
         
@@ -258,7 +258,7 @@ export default function ScreenToMarkdown() {
   }, [previewId]);
 
   const clearAll = () => {
-    if (confirm('Are you sure you want to clear all captures?')) {
+    if (confirm('すべてのキャプチャを消去してもよろしいですか？')) {
       setCaptures([]);
       lastMarkdownRef.current = '';
     }
@@ -315,7 +315,7 @@ export default function ScreenToMarkdown() {
   const copyToClipboard = () => {
     const combinedMarkdown = captures.filter(c => c.status === 'done').map(c => c.markdown).join('\n\n---\n\n');
     navigator.clipboard.writeText(combinedMarkdown);
-    alert('Copied to clipboard!');
+    alert('クリップボードにコピーしました！');
   };
 
   // Drag and Drop Handlers
@@ -366,7 +366,7 @@ export default function ScreenToMarkdown() {
       if (e.key === 'ArrowRight') navigatePreview('next');
       if (e.key === 'Escape') setPreviewId(null);
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (confirm('Delete this capture?')) deleteCapture(previewId);
+        if (confirm('このキャプチャを削除しますか？')) deleteCapture(previewId);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -407,7 +407,7 @@ export default function ScreenToMarkdown() {
       container.appendChild(title);
 
       const captureBtn = pipWindow.document.createElement('button');
-      captureBtn.textContent = '📸 Capture Now';
+      captureBtn.textContent = '📸 今すぐキャプチャ';
       captureBtn.className = `${styles.button} ${styles.primary}`; captureBtn.style.width = '100%';
       captureBtn.onclick = () => captureAndAppend();
       container.appendChild(captureBtn);
@@ -421,7 +421,7 @@ export default function ScreenToMarkdown() {
         setIsTranslate(target.checked);
       };
       const translateLabel = pipWindow.document.createElement('label');
-      translateLabel.textContent = 'Translate to Japanese';
+      translateLabel.textContent = '日本語に翻訳';
       translateRow.appendChild(translateCheck); translateRow.appendChild(translateLabel);
       container.appendChild(translateRow);
 
@@ -431,7 +431,7 @@ export default function ScreenToMarkdown() {
 
       ['timer', 'smart'].forEach((m) => {
         const btn = pipWindow.document.createElement('button');
-        btn.textContent = m === 'timer' ? '⏱️ Timer' : '🧠 Smart';
+        btn.textContent = m === 'timer' ? '⏱️ タイマー' : '🧠 スマート';
         btn.className = `${styles.modeBtn} ${autoMode === m ? styles.activeMode : ''}`;
         btn.style.flex = '1';
         btn.onclick = () => toggleAutoMode(m as AutoMode);
@@ -439,7 +439,7 @@ export default function ScreenToMarkdown() {
       });
 
       const stopBtn = pipWindow.document.createElement('button');
-      stopBtn.textContent = '🛑 Stop Auto';
+      stopBtn.textContent = '🛑 自動停止';
       stopBtn.className = `${styles.button} ${styles.danger}`; stopBtn.style.width = '100%';
       stopBtn.style.display = autoMode === 'off' ? 'none' : 'block';
       stopBtn.onclick = () => setAutoMode('off');
@@ -501,7 +501,7 @@ export default function ScreenToMarkdown() {
           markdown: '',
           status: 'loading',
           progress: 5,
-          statusMessage: 'Reading PDF...'
+          statusMessage: 'PDFを読み込み中...'
         };
         setCaptures(prev => [...prev, newCapture]);
 
@@ -521,19 +521,19 @@ export default function ScreenToMarkdown() {
             canvas.width = viewport.width;
             await page.render({ canvasContext: context, viewport }).promise;
             const thumbnail = canvas.toDataURL('image/png');
-            setCaptures(prev => prev.map(c => c.id === newId ? { ...c, image: thumbnail, progress: 20, statusMessage: 'Analyzing...' } : c));
+            setCaptures(prev => prev.map(c => c.id === newId ? { ...c, image: thumbnail, progress: 20, statusMessage: '解析中...' } : c));
           }
         } catch (thumbErr) {
           console.warn("Failed to generate PDF thumbnail:", thumbErr);
         }
 
-        setCaptures(prev => prev.map(c => c.id === newId ? { ...c, progress: 30, statusMessage: 'Sending to Gemini...' } : c));
+        setCaptures(prev => prev.map(c => c.id === newId ? { ...c, progress: 30, statusMessage: 'Geminiに送信中...' } : c));
 
         // Start a fake progress timer for the translation phase (30% to 90%)
         const progressInterval = setInterval(() => {
           setCaptures(prev => prev.map(c => {
             if (c.id === newId && c.status === 'loading' && c.progress && c.progress < 90) {
-              return { ...c, progress: c.progress + 1, statusMessage: 'Translating...' };
+              return { ...c, progress: c.progress + 1, statusMessage: '翻訳中...' };
             }
             return c;
           }));
@@ -563,18 +563,18 @@ export default function ScreenToMarkdown() {
             markdown: `## PDF: ${file.name}\n\n${data.markdown}`, 
             status: 'done', 
             progress: 100, 
-            statusMessage: 'Completed' 
+            statusMessage: '完了' 
           } : c
         ));
       } catch (err: any) {
         console.error("PDF Processing Error:", err);
         setCaptures(prev => prev.map(c => 
-          c.status === 'loading' ? { ...c, status: 'error', error: err.message, progress: 100, statusMessage: 'Failed' } : c
+          c.status === 'loading' ? { ...c, status: 'error', error: err.message, progress: 100, statusMessage: '失敗' } : c
         ));
-        alert("Failed to process PDF: " + err.message);
+        alert("PDFの処理に失敗しました: " + err.message);
       }
     };
-    reader.onerror = () => alert("Failed to read file.");
+    reader.onerror = () => alert("ファイルの読み込みに失敗しました。");
     reader.readAsDataURL(file);
     
     // Reset file input
@@ -584,30 +584,30 @@ export default function ScreenToMarkdown() {
   return (
     <div className={styles.container}>
       <h1 className={styles.title}>Screen to Markdown</h1>
-      <p className={styles.subtitle}>Intelligent capture with motion detection</p>
+      <p className={styles.subtitle}>動きを検知するインテリジェント・キャプチャ</p>
 
       <div className={styles.captureSection}>
         <video ref={videoRef} autoPlay playsInline className={styles.videoPreview} style={{ display: stream ? 'block' : 'none' }} />
-        {!stream && <div className={styles.videoPreview} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666', background: '#eee' }}>Screen not shared</div>}
+        {!stream && <div className={styles.videoPreview} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666', background: '#eee' }}>画面が共有されていません</div>}
 
         {autoMode !== 'off' && (
           <div className={styles.autoCaptureIndicator}>
             <div className={styles.pulse} />
             {autoMode === 'timer' ? (
-              <span>TIMER ACTIVE: Next in {countdown}s</span>
+              <span>タイマー稼働中: 次回まで {countdown}秒</span>
             ) : (
-              <span>SMART ACTIVE: <span className={styles.smartStatus}>{smartStatus}</span></span>
+              <span>スマート稼働中: <span className={styles.smartStatus}>{smartStatus}</span></span>
             )}
           </div>
         )}
 
         <div className={styles.controls}>
           {!stream ? (
-            <button className={`${styles.button} ${styles.primary}`} onClick={startCapture}><span>📺</span> Start Screen Share</button>
+            <button className={`${styles.button} ${styles.primary}`} onClick={startCapture}><span>📺</span> 画面共有を開始</button>
           ) : (
             <>
-              <button className={`${styles.button} ${styles.secondary}`} onClick={stopCapture}>Stop Share</button>
-              <button className={`${styles.button} ${styles.primary}`} onClick={captureAndAppend}><span>📸</span> Capture & Append</button>
+              <button className={`${styles.button} ${styles.secondary}`} onClick={stopCapture}>共有停止</button>
+              <button className={`${styles.button} ${styles.primary}`} onClick={captureAndAppend}><span>📸</span> キャプチャして追加</button>
               
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 10px', background: '#f3f4f6', borderRadius: '8px', fontSize: '0.85rem' }}>
                 <input 
@@ -616,16 +616,16 @@ export default function ScreenToMarkdown() {
                   checked={isTranslate} 
                   onChange={(e) => setIsTranslate(e.target.checked)} 
                 />
-                <label htmlFor="translate" style={{ fontWeight: 'bold', cursor: 'pointer' }}>Translate to JP</label>
+                <label htmlFor="translate" style={{ fontWeight: 'bold', cursor: 'pointer' }}>日本語に翻訳</label>
               </div>
 
               <div className={styles.modeButtonGroup}>
-                <button className={`${styles.modeBtn} ${autoMode === 'timer' ? styles.activeMode : ''}`} onClick={() => toggleAutoMode('timer')}>⏱️ Timer</button>
-                <button className={`${styles.modeBtn} ${autoMode === 'smart' ? styles.activeMode : ''}`} onClick={() => toggleAutoMode('smart')}>🧠 Smart</button>
+                <button className={`${styles.modeBtn} ${autoMode === 'timer' ? styles.activeMode : ''}`} onClick={() => toggleAutoMode('timer')}>⏱️ タイマー</button>
+                <button className={`${styles.modeBtn} ${autoMode === 'smart' ? styles.activeMode : ''}`} onClick={() => toggleAutoMode('smart')}>🧠 スマート</button>
                 {autoMode !== 'off' && <button className={`${styles.modeBtn}`} style={{color: '#ef4444'}} onClick={() => setAutoMode('off')}>✕</button>}
               </div>
 
-              <button className={`${styles.button} ${styles.secondary}`} onClick={openPipControls}><span>🔲</span> Pop out Controls</button>
+              <button className={`${styles.button} ${styles.secondary}`} onClick={openPipControls}><span>🔲</span> 操作パネルを分離</button>
 
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <input 
@@ -636,10 +636,10 @@ export default function ScreenToMarkdown() {
                   id="pdf-upload" 
                 />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                  <label style={{ fontSize: '0.65rem', color: '#666', fontWeight: 'bold' }}>Page Range (Partial)</label>
+                  <label style={{ fontSize: '0.65rem', color: '#666', fontWeight: 'bold' }}>ページ範囲 (一部)</label>
                   <input 
                     type="text" 
-                    placeholder="e.g. 1, 3-5" 
+                    placeholder="例: 1, 3-5" 
                     value={pdfPageRange}
                     onChange={(e) => setPdfPageRange(e.target.value)}
                     style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ddd', fontSize: '0.8rem', width: '110px' }}
@@ -648,7 +648,7 @@ export default function ScreenToMarkdown() {
                 <button 
                   className={`${styles.button} ${styles.warning}`} 
                   onClick={() => document.getElementById('pdf-upload')?.click()}
-                  title="Upload PDF to translate specified pages individually"
+                  title="PDFをアップロードして、指定したページを個別に和訳します"
                 >
                   <span>📄</span> PDF和訳
                 </button>
@@ -657,8 +657,8 @@ export default function ScreenToMarkdown() {
           )}
           {captures.length > 0 && (
             <>
-              <button className={`${styles.button} ${styles.danger}`} onClick={clearAll}>Clear All</button>
-              <button className={`${styles.button} ${styles.secondary}`} onClick={copyToClipboard} disabled={!combinedMarkdown}>Copy Markdown</button>
+              <button className={`${styles.button} ${styles.danger}`} onClick={clearAll}>すべて消去</button>
+              <button className={`${styles.button} ${styles.secondary}`} onClick={copyToClipboard} disabled={!combinedMarkdown}>Markdownをコピー</button>
             </>
           )}
         </div>
@@ -668,9 +668,9 @@ export default function ScreenToMarkdown() {
 
       <div className={styles.mainLayout}>
         <div className={styles.historySidebar}>
-          <div className={styles.sidebarHeader}><span>History</span><span>{captures.length} captures</span></div>
+          <div className={styles.sidebarHeader}><span>履歴</span><span>{captures.length} 件</span></div>
           <div className={styles.historyList}>
-            {captures.length === 0 ? <div className={styles.emptyState}>No captures yet</div> : (
+            {captures.length === 0 ? <div className={styles.emptyState}>キャプチャがありません</div> : (
               captures.map((c, i) => (
                 <div 
                   key={c.id} 
@@ -682,8 +682,8 @@ export default function ScreenToMarkdown() {
                   onDrop={() => handleDrop(i)}
                   onDragEnd={handleDragEnd}
                 >
-                  <button className={styles.deleteBtn} onClick={(e) => { e.stopPropagation(); deleteCapture(c.id); }} title="Remove this capture">×</button>
-                  <button className={styles.reloadBtn} onClick={(e) => { e.stopPropagation(); retryCapture(c.id); }} title="Retry processing this capture">⟳</button>
+                  <button className={styles.deleteBtn} onClick={(e) => { e.stopPropagation(); deleteCapture(c.id); }} title="このキャプチャを削除">×</button>
+                  <button className={styles.reloadBtn} onClick={(e) => { e.stopPropagation(); retryCapture(c.id); }} title="再処理を実行">⟳</button>
                   <img src={c.image} alt={`Capture ${i+1}`} className={styles.thumbnail} onClick={() => setPreviewId(c.id)} style={{ cursor: 'zoom-in', opacity: 1 }} />
                   <div className={styles.statusOverlay} onClick={() => setPreviewId(c.id)} style={{ cursor: 'zoom-in', flexDirection: 'column' }}>
                     {c.status === 'loading' && (
@@ -702,7 +702,7 @@ export default function ScreenToMarkdown() {
                           className={styles.errorRetryBtn} 
                           onClick={(e) => { e.stopPropagation(); retryCapture(c.id); }}
                         >
-                          Retry
+                          再試行
                         </button>
                       </>
                     )}
@@ -717,15 +717,15 @@ export default function ScreenToMarkdown() {
 
         <div className={styles.resultArea}>
           <div className={styles.resultHeader}>
-            <span style={{ fontWeight: 'bold' }}>Combined Markdown</span>
-            <span style={{ fontSize: '0.8rem', color: '#666' }}>{combinedMarkdown.split(/\s+/).filter(Boolean).length} words</span>
+            <span style={{ fontWeight: 'bold' }}>結合済み Markdown</span>
+            <span style={{ fontSize: '0.8rem', color: '#666' }}>{combinedMarkdown.split(/\s+/).filter(Boolean).length} 単語</span>
           </div>
           <div className={styles.markdownBox}>
             {captures.length === 0 ? (
-              <div className={styles.emptyState}><span>✨</span>Results will appear here as you capture pages</div>
+              <div className={styles.emptyState}><span>✨</span>ページをキャプチャするとここに結果が表示されます</div>
             ) : combinedMarkdown ? combinedMarkdown : captures.some(c => c.status === 'loading') ? (
-              <div className={styles.emptyState}>AI is processing your first page...</div>
-            ) : <div className={styles.emptyState}>Processing...</div>}
+              <div className={styles.emptyState}>AIが最初のページを処理中です...</div>
+            ) : <div className={styles.emptyState}>処理中...</div>}
           </div>
         </div>
       </div>
@@ -737,8 +737,8 @@ export default function ScreenToMarkdown() {
             <button className={`${styles.navBtn} ${styles.prevBtn}`} onClick={() => navigatePreview('prev')} disabled={previewIndex === 0}>‹</button>
             <img src={selectedCapture.image} alt="Enlarged capture" className={styles.modalImage} />
             <button className={`${styles.navBtn} ${styles.nextBtn}`} onClick={() => navigatePreview('next')} disabled={previewIndex === captures.length - 1}>›</button>
-            <div className={styles.modalInfo}>Capture #{previewIndex + 1} of {captures.length} — Status: {selectedCapture.status}</div>
-            <button className={styles.modalDelete} onClick={() => { if (confirm('Delete this capture?')) deleteCapture(selectedCapture.id); }}><span>🗑️</span> Delete This Capture</button>
+            <div className={styles.modalInfo}>キャプチャ #{previewIndex + 1} / {captures.length} — 状態: {selectedCapture.status}</div>
+            <button className={styles.modalDelete} onClick={() => { if (confirm('このキャプチャを削除しますか？')) deleteCapture(selectedCapture.id); }}><span>🗑️</span> このキャプチャを削除</button>
           </div>
         </div>
       )}
