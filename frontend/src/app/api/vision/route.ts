@@ -1,15 +1,85 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import { GoogleAIFileManager } from '@google/generative-ai/server';
+import { GoogleGenAI } from '@google/genai';
 import { Readable } from 'stream';
 import Busboy from 'busboy';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { PDFDocument } from 'pdf-lib';
+
+const MAX_PDF_SIZE = 45 * 1024 * 1024; // 45MB safe limit (API limit is 50MB)
+const PAGES_PER_CHUNK = 30; // Process 30 pages at a time for large PDFs
+
+/**
+ * Split a large PDF into smaller chunks that fit within Gemini's size limit.
+ * Returns an array of temporary file paths for each chunk.
+ */
+async function splitPdf(filePath: string, pageRange?: string): Promise<string[]> {
+  const pdfBytes = fs.readFileSync(filePath);
+  const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+  const totalPages = pdfDoc.getPageCount();
+
+  // Determine which pages to process
+  let pagesToProcess: number[] = [];
+  if (pageRange) {
+    pagesToProcess = parsePageRange(pageRange, totalPages);
+  } else {
+    pagesToProcess = Array.from({ length: totalPages }, (_, i) => i);
+  }
+
+  console.log(`PDF has ${totalPages} pages, processing ${pagesToProcess.length} pages`);
+
+  // If the file is small enough, return it as-is
+  if (pdfBytes.length <= MAX_PDF_SIZE && !pageRange) {
+    return [filePath];
+  }
+
+  // Split into chunks
+  const chunks: string[] = [];
+  for (let i = 0; i < pagesToProcess.length; i += PAGES_PER_CHUNK) {
+    const chunkPages = pagesToProcess.slice(i, i + PAGES_PER_CHUNK);
+    const newPdf = await PDFDocument.create();
+    const copiedPages = await newPdf.copyPages(pdfDoc, chunkPages);
+    copiedPages.forEach(page => newPdf.addPage(page));
+    
+    const chunkBytes = await newPdf.save();
+    const chunkPath = path.join(os.tmpdir(), `pdf-chunk-${Date.now()}-${i}.pdf`);
+    fs.writeFileSync(chunkPath, chunkBytes);
+    chunks.push(chunkPath);
+    
+    console.log(`Created chunk ${chunks.length}: pages ${chunkPages[0] + 1}-${chunkPages[chunkPages.length - 1] + 1}, size: ${(chunkBytes.length / 1024 / 1024).toFixed(1)}MB`);
+  }
+
+  return chunks;
+}
+
+/**
+ * Parse a page range string like "1, 3-5, 10" into zero-indexed page numbers.
+ */
+function parsePageRange(range: string, totalPages: number): number[] {
+  const pages: Set<number> = new Set();
+  const parts = range.split(',').map(s => s.trim());
+  
+  for (const part of parts) {
+    if (part.includes('-')) {
+      const [start, end] = part.split('-').map(s => parseInt(s.trim()));
+      for (let i = Math.max(1, start); i <= Math.min(totalPages, end); i++) {
+        pages.add(i - 1); // Convert to zero-indexed
+      }
+    } else {
+      const num = parseInt(part);
+      if (num >= 1 && num <= totalPages) {
+        pages.add(num - 1); // Convert to zero-indexed
+      }
+    }
+  }
+  
+  return Array.from(pages).sort((a, b) => a - b);
+}
 
 export async function POST(req: NextRequest) {
   let tempFilePath: string | null = null;
-  let fileUri: string | null = null;
+  const chunkPaths: string[] = [];
   
   try {
     const contentType = req.headers.get('content-type') || '';
@@ -82,8 +152,7 @@ export async function POST(req: NextRequest) {
 
     console.log('Vision API Request: translate =', translate, 'mimeType =', mimeType, 'method =', tempFilePath ? 'FileAPI' : 'InlineData');
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const ai = new GoogleGenAI({ apiKey });
 
     // Prepare prompt
     let rangeInstruction = '';
@@ -114,49 +183,136 @@ export async function POST(req: NextRequest) {
       5. PDFの場合は、翻訳においてもドキュメントの構造（見出し、表など）を維持してください。`;
     }
 
-    const contentParts: (string | { inlineData: { data: string; mimeType: string } } | { fileData: { fileUri: string; mimeType: string } })[] = [prompt];
+    // Handle PDF files - potentially split if too large
+    if (tempFilePath && mimeType === 'application/pdf') {
+      const fileSize = fs.statSync(tempFilePath).size;
+      console.log(`PDF file size: ${(fileSize / 1024 / 1024).toFixed(1)}MB`);
 
-    if (tempFilePath) {
-      // Use File API for large files
-      const fileManager = new GoogleAIFileManager(apiKey);
-      const uploadResponse = await fileManager.uploadFile(tempFilePath, {
-        mimeType: mimeType,
-        displayName: path.basename(tempFilePath),
-      });
-      fileUri = uploadResponse.file.uri;
-      
-      // Wait for the file to be processed (active state)
-      let file = await fileManager.getFile(uploadResponse.file.name);
-      while (file.state === 'PROCESSING') {
-        process.stdout.write('.');
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-        file = await fileManager.getFile(uploadResponse.file.name);
+      // Split PDF into processable chunks
+      const chunks = await splitPdf(tempFilePath, pageRange || undefined);
+      chunkPaths.push(...chunks.filter(p => p !== tempFilePath));
+
+      const allResults: string[] = [];
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunkPath = chunks[i];
+        const chunkBuffer = fs.readFileSync(chunkPath);
+        
+        console.log(`Processing chunk ${i + 1}/${chunks.length}, size: ${(chunkBuffer.length / 1024 / 1024).toFixed(1)}MB`);
+
+        // Upload chunk to Gemini File API
+        const uploadResponse = await ai.files.upload({
+          file: new Blob([chunkBuffer], { type: 'application/pdf' }),
+          config: {
+            mimeType: 'application/pdf',
+            displayName: `chunk-${i + 1}-of-${chunks.length}`,
+          },
+        });
+
+        console.log('Chunk uploaded:', uploadResponse.name, 'state:', uploadResponse.state);
+
+        // Wait for processing
+        let fileStatus = uploadResponse;
+        while (fileStatus.state === 'PROCESSING') {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          fileStatus = await ai.files.get({ name: fileStatus.name! });
+        }
+
+        if (fileStatus.state === 'FAILED') {
+          throw new Error(`Gemini File processing failed for chunk ${i + 1}`);
+        }
+
+        // Build chunk-specific prompt
+        let chunkPrompt = prompt;
+        // Always remove the page range instruction since splitPdf already extracted the requested pages.
+        // The extracted PDF has pages renumbered from 1, so the original range would confuse the model.
+        if (rangeInstruction) {
+          chunkPrompt = chunkPrompt.replace(rangeInstruction, '');
+        }
+        if (chunks.length > 1) {
+          chunkPrompt += `\nこれはドキュメントのパート ${i + 1}/${chunks.length} です。`;
+          
+          if (i > 0 && allResults.length > 0) {
+            const prevContext = allResults[allResults.length - 1].slice(-500);
+            chunkPrompt += `\n\n【前パートの末尾】:\n"""\n${prevContext}\n"""\n前のパートと自然に繋がるように出力してください。重複する内容は避けてください。`;
+          }
+        }
+
+        const chunkContents: Array<{ text: string } | { fileData: { mimeType: string; fileUri: string } }> = [
+          {
+            fileData: {
+              mimeType: fileStatus.mimeType!,
+              fileUri: fileStatus.uri!,
+            },
+          },
+          { text: chunkPrompt },
+        ];
+
+        const result = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: chunkContents,
+        });
+
+        allResults.push(result.text ?? '');
+        console.log(`Chunk ${i + 1} completed, result length: ${allResults[allResults.length - 1].length}`);
       }
 
-      if (file.state === 'FAILED') {
+      const combinedText = allResults.join('\n\n---\n\n');
+      return NextResponse.json({ markdown: combinedText });
+    }
+
+    // Handle non-PDF files (images) or small files
+    const contents: Array<{ text: string } | { inlineData: { mimeType: string; data: string } } | { fileData: { mimeType: string; fileUri: string } }> = [];
+
+    if (tempFilePath) {
+      // Non-PDF large file
+      const fileBuffer = fs.readFileSync(tempFilePath);
+      const uploadResponse = await ai.files.upload({
+        file: new Blob([fileBuffer], { type: mimeType }),
+        config: {
+          mimeType: mimeType,
+          displayName: path.basename(tempFilePath),
+        },
+      });
+
+      let fileStatus = uploadResponse;
+      while (fileStatus.state === 'PROCESSING') {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        fileStatus = await ai.files.get({ name: fileStatus.name! });
+      }
+
+      if (fileStatus.state === 'FAILED') {
         throw new Error('Gemini File processing failed');
       }
 
-      contentParts.push({
+      contents.push({
         fileData: {
-          fileUri: fileUri,
-          mimeType: mimeType,
+          mimeType: fileStatus.mimeType!,
+          fileUri: fileStatus.uri!,
         },
       });
     } else if (image) {
       // Use Inline Data for small images
       const base64Data = image.split(',')[1] || image;
-      contentParts.push({
+      contents.push({
         inlineData: {
-          data: base64Data,
           mimeType: mimeType,
+          data: base64Data,
         },
       });
     }
 
-    const result = await model.generateContent(contentParts as any);
-    const response = await result.response;
-    const text = response.text();
+    // Add the text prompt
+    contents.push({ text: prompt });
+
+    console.log('Sending to Gemini model: gemini-2.5-flash, parts count:', contents.length);
+
+    const result = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: contents,
+    });
+
+    const text = result.text ?? '';
 
     return NextResponse.json({ markdown: text });
   } catch (error: unknown) {
@@ -164,7 +320,7 @@ export async function POST(req: NextRequest) {
     console.error('Vision API Error:', error);
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   } finally {
-    // Cleanup temporary file
+    // Cleanup temporary files
     if (tempFilePath && fs.existsSync(tempFilePath)) {
       try {
         fs.unlinkSync(tempFilePath);
@@ -172,8 +328,15 @@ export async function POST(req: NextRequest) {
         console.error('Failed to cleanup temp file:', err);
       }
     }
-    // We don't delete from Gemini File API here as they expire automatically after 48h,
-    // and manual deletion might be redundant for this use case.
+    // Cleanup chunk files
+    for (const chunkPath of chunkPaths) {
+      if (fs.existsSync(chunkPath)) {
+        try {
+          fs.unlinkSync(chunkPath);
+        } catch (err) {
+          console.error('Failed to cleanup chunk file:', err);
+        }
+      }
+    }
   }
 }
-
