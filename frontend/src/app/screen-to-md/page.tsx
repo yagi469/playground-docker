@@ -141,10 +141,11 @@ export default function ScreenToMarkdown() {
       setCaptures(prev => prev.map(c => 
         c.id === newId ? { ...c, markdown: data.markdown, status: 'done' } : c
       ));
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
       console.error("Conversion Error:", err);
       setCaptures(prev => prev.map(c => 
-        c.id === newId ? { ...c, status: 'error', error: err.message } : c
+        c.id === newId ? { ...c, status: 'error', error: message } : c
       ));
     }
   }, [isTranslate]);
@@ -297,10 +298,11 @@ export default function ScreenToMarkdown() {
             }
             return updated;
           });
-        } catch (err: any) {
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
           console.error("Retry Error:", err);
           setCaptures(current => current.map(c => 
-            c.id === id ? { ...c, status: 'error', error: err.message } : c
+            c.id === id ? { ...c, status: 'error', error: message } : c
           ));
         }
       })();
@@ -446,34 +448,13 @@ export default function ScreenToMarkdown() {
       container.appendChild(stopBtn);
 
       pipWindow.onunload = () => {};
-    } catch (err: any) { alert("PiP Error: " + err.message); }
+    } catch (err: unknown) { 
+      const message = err instanceof Error ? err.message : String(err);
+      alert("PiP Error: " + message); 
+    }
   };
 
   const combinedMarkdown = captures.filter(c => c.status === 'done').map(c => c.markdown).join('\n\n---\n\n');
-
-  const parsePageRange = (rangeStr: string, maxPages: number): number[] => {
-    if (!rangeStr.trim()) return Array.from({ length: Math.min(maxPages, 10) }, (_, i) => i + 1); // Default to first 10 pages if empty to avoid overflow
-    
-    const pages = new Set<number>();
-    const parts = rangeStr.split(',');
-    
-    for (const part of parts) {
-      const range = part.trim().split('-');
-      if (range.length === 1) {
-        const p = parseInt(range[0]);
-        if (!isNaN(p) && p >= 1 && p <= maxPages) pages.add(p);
-      } else if (range.length === 2) {
-        const start = parseInt(range[0]);
-        const end = parseInt(range[1]);
-        if (!isNaN(start) && !isNaN(end)) {
-          for (let i = Math.max(1, start); i <= Math.min(maxPages, end); i++) {
-            pages.add(i);
-          }
-        }
-      }
-    }
-    return Array.from(pages).sort((a, b) => a - b);
-  };
 
   const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -483,99 +464,86 @@ export default function ScreenToMarkdown() {
       return;
     }
 
-    // Limit file size to 20MB for inlineData
-    if (file.size > 20 * 1024 * 1024) {
-      alert('File size exceeds 20MB. Please use a smaller PDF or a different method.');
-      return;
-    }
+    try {
+      const newId = Math.random().toString(36).substr(2, 9);
+      const newCapture: CaptureResult = {
+        id: newId,
+        image: '/file.svg',
+        markdown: '',
+        status: 'loading',
+        progress: 5,
+        statusMessage: 'PDFを読み込み中...'
+      };
+      setCaptures(prev => [...prev, newCapture]);
 
-    const reader = new FileReader();
-    reader.onload = async () => {
+      // Generate a thumbnail for the history sidebar (only for small-ish files or just the first page)
       try {
-        const base64Data = (reader.result as string).split(',')[1];
+        const pdfjsLib = await import('pdfjs-dist');
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
         
-        const newId = Math.random().toString(36).substr(2, 9);
-        const newCapture: CaptureResult = {
-          id: newId,
-          image: '/file.svg',
-          markdown: '',
-          status: 'loading',
-          progress: 5,
-          statusMessage: 'PDFを読み込み中...'
-        };
-        setCaptures(prev => [...prev, newCapture]);
-
-        // Generate a thumbnail for the history sidebar
-        try {
-          const pdfjsLib = await import('pdfjs-dist');
-          pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
-          
-          const arrayBuffer = await file.arrayBuffer();
-          const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-          const page = await pdf.getPage(1);
-          const viewport = page.getViewport({ scale: 0.5 });
-          const canvas = document.createElement('canvas');
-          const context = canvas.getContext('2d');
-          if (context) {
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
-            await page.render({ canvasContext: context, viewport }).promise;
-            const thumbnail = canvas.toDataURL('image/png');
-            setCaptures(prev => prev.map(c => c.id === newId ? { ...c, image: thumbnail, progress: 20, statusMessage: '解析中...' } : c));
-          }
-        } catch (thumbErr) {
-          console.warn("Failed to generate PDF thumbnail:", thumbErr);
+        const arrayBuffer = await file.slice(0, 10 * 1024 * 1024).arrayBuffer(); // Just read first 10MB for thumb
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        const page = await pdf.getPage(1);
+        const viewport = page.getViewport({ scale: 0.5 });
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        if (context) {
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+          await page.render({ canvasContext: context, viewport }).promise;
+          const thumbnail = canvas.toDataURL('image/png');
+          setCaptures(prev => prev.map(c => c.id === newId ? { ...c, image: thumbnail, progress: 20, statusMessage: '解析中...' } : c));
         }
-
-        setCaptures(prev => prev.map(c => c.id === newId ? { ...c, progress: 30, statusMessage: 'Geminiに送信中...' } : c));
-
-        // Start a fake progress timer for the translation phase (30% to 90%)
-        const progressInterval = setInterval(() => {
-          setCaptures(prev => prev.map(c => {
-            if (c.id === newId && c.status === 'loading' && c.progress && c.progress < 90) {
-              return { ...c, progress: c.progress + 1, statusMessage: '翻訳中...' };
-            }
-            return c;
-          }));
-        }, 800);
-
-        const res = await fetchWithRetry('/api/vision', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            image: base64Data, 
-            translate: isTranslate,
-            mimeType: 'application/pdf',
-            pageRange: pdfPageRange,
-            previousContext: lastMarkdownRef.current
-          }),
-        });
-
-        clearInterval(progressInterval);
-        const data = await res.json();
-        if (data.error) throw new Error(data.error);
-
-        lastMarkdownRef.current = data.markdown;
-
-        setCaptures(prev => prev.map(c => 
-          c.id === newId ? { 
-            ...c, 
-            markdown: `## PDF: ${file.name}\n\n${data.markdown}`, 
-            status: 'done', 
-            progress: 100, 
-            statusMessage: '完了' 
-          } : c
-        ));
-      } catch (err: any) {
-        console.error("PDF Processing Error:", err);
-        setCaptures(prev => prev.map(c => 
-          c.status === 'loading' ? { ...c, status: 'error', error: err.message, progress: 100, statusMessage: '失敗' } : c
-        ));
-        alert("PDFの処理に失敗しました: " + err.message);
+      } catch (thumbErr) {
+        console.warn("Failed to generate PDF thumbnail:", thumbErr);
       }
-    };
-    reader.onerror = () => alert("ファイルの読み込みに失敗しました。");
-    reader.readAsDataURL(file);
+
+      setCaptures(prev => prev.map(c => c.id === newId ? { ...c, progress: 30, statusMessage: 'Geminiに送信中...' } : c));
+
+      // Start a fake progress timer for the translation phase (30% to 90%)
+      const progressInterval = setInterval(() => {
+        setCaptures(prev => prev.map(c => {
+          if (c.id === newId && c.status === 'loading' && c.progress && c.progress < 90) {
+            return { ...c, progress: c.progress + 1, statusMessage: '処理中...' };
+          }
+          return c;
+        }));
+      }, 800);
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('translate', isTranslate.toString());
+      formData.append('mimeType', 'application/pdf');
+      formData.append('pageRange', pdfPageRange);
+      formData.append('previousContext', lastMarkdownRef.current);
+
+      const res = await fetchWithRetry('/api/vision', {
+        method: 'POST',
+        body: formData,
+      });
+
+      clearInterval(progressInterval);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+
+      lastMarkdownRef.current = data.markdown;
+
+      setCaptures(prev => prev.map(c => 
+        c.id === newId ? { 
+          ...c, 
+          markdown: `## PDF: ${file.name}\n\n${data.markdown}`, 
+          status: 'done', 
+          progress: 100, 
+          statusMessage: '完了' 
+        } : c
+      ));
+    } catch (err: any) {
+      console.error("PDF Processing Error:", err);
+      setCaptures(prev => prev.map(c => 
+        c.status === 'loading' ? { ...c, status: 'error', error: err.message, progress: 100, statusMessage: '失敗' } : c
+      ));
+      alert("PDFの処理に失敗しました: " + err.message);
+    }
     
     // Reset file input
     e.target.value = '';

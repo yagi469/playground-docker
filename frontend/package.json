@@ -11,6 +11,8 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@monaco-editor/react": "^4.7.0",
+    "@types/busboy": "^1.5.4",
+    "busboy": "^1.6.0",
     "file-saver": "^2.0.5",
     "jszip": "^3.10.1",
     "next": "16.2.4",
