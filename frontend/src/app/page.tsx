@@ -19,6 +19,11 @@ export default function Home() {
           <p className="text-gray-600 leading-relaxed">データベースに直 接SQLを実行して結果を確認できます。テーブル一覧の表示やテーブル構造の確 認も可能です。</p>
         </Link>
 
+        <Link href="/python-editor" className="group p-8 border rounded-2xl bg-gray-50 hover:bg-green-50 hover:border-green-200 transition-all shadow-sm">
+          <h2 className="text-2xl font-bold mb-3 group-hover:text-green-600">Python エディタ &rarr;</h2>
+          <p className="text-gray-600 leading-relaxed">Pythonコードを実行し、グラフ（Matplotlib）や計算結果をリアルタイムで確認できます。Qiskitなどの量子計算ライブラリも利用可能です。</p>
+        </Link>
+
         <Link href="/spring-book" className="group p-8 border rounded-2xl bg-gray-50 hover:bg-blue-50 hover:border-blue-200 transition-all shadow-sm">
           <h2 className="text-2xl font-bold mb-3 group-hover:text-blue-600">Spring-Book エディタ &rarr;</h2>
           <p className="text-gray-600 leading-relaxed">Spring Bootの学習プロジェクトをブラウザ上で閲覧・編集・実行できます。Mavenコマンドの実行結果も確認可能です。</p>

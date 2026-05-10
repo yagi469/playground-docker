@@ -44,6 +44,11 @@ export default function RootLayout({
                 </Link>
               </li>
               <li>
+                <Link href="/python-editor" className="text-gray-600 hover:text-green-600 font-medium transition-colors">
+                  Pythonエディタ
+                </Link>
+              </li>
+              <li>
                 <Link href="/spring-book" className="text-gray-600 hover:text-blue-600 font-medium transition-colors">
                   Spring-Bookエディタ
                 </Link>

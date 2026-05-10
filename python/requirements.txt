@@ -3,3 +3,7 @@ matplotlib
 pylatexenc
 qiskit
 qiskit_aer
+fastapi
+uvicorn
+python-multipart
+jedi
