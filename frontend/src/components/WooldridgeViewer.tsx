@@ -16,7 +16,7 @@ const WooldridgeViewer: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const API_BASE = 'http://localhost:8001';
+  const API_BASE = '/api/wooldridge';
 
   useEffect(() => {
     fetchDatasets();
@@ -24,7 +24,7 @@ const WooldridgeViewer: React.FC = () => {
 
   const fetchDatasets = async () => {
     try {
-      const response = await fetch(`${API_BASE}/wooldridge/datasets`);
+      const response = await fetch(`${API_BASE}/datasets`);
       if (!response.ok) throw new Error('Failed to fetch datasets');
       const data = await response.json();
       setDatasets(data.datasets);
@@ -40,7 +40,7 @@ const WooldridgeViewer: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE}/wooldridge/data/${datasetId}`);
+      const response = await fetch(`${API_BASE}/data/${datasetId}`);
       if (!response.ok) throw new Error('Failed to fetch dataset data');
       const data = await response.json();
       setDataInfo(data);
