@@ -33,6 +33,11 @@ export default function Home() {
           <h2 className="text-2xl font-bold mb-3 group-hover:text-purple-600">Screen to Markdown &rarr;</h2>
           <p className="text-gray-600 leading-relaxed">アプリや画面をキャプチャして、AIがその内容を解析しMarkdown形式に変換します。</p>
         </Link>
+
+        <Link href="/wooldridge" className="group p-8 border rounded-2xl bg-gray-50 hover:bg-orange-50 hover:border-orange-200 transition-all shadow-sm">
+          <h2 className="text-2xl font-bold mb-3 group-hover:text-orange-600">Wooldridge Viewer &rarr;</h2>
+          <p className="text-gray-600 leading-relaxed">Wooldridgeの計量経済学データセットを閲覧できます。データの表形式表示や各変数の確認が可能です。</p>
+        </Link>
       </div>
 
       <footer className="mt-16 text-gray-400 text-sm">

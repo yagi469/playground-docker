@@ -6,6 +6,8 @@ import contextlib
 import base64
 import matplotlib.pyplot as plt
 from fastapi.middleware.cors import CORSMiddleware
+import wooldridge
+import pandas as pd
 
 app = FastAPI()
 
@@ -56,6 +58,36 @@ async def get_completions(request: CompletionRequest):
         }
     except Exception as e:
         return {"completions": [], "error": str(e)}
+
+@app.get("/wooldridge/datasets")
+async def list_datasets():
+    try:
+        # Get the list of available datasets from wooldridge package
+        data_dir = os.path.join(os.path.dirname(wooldridge.__file__), 'datasets')
+        datasets = [f.replace('.csv.bz2', '') for f in os.listdir(data_dir) if f.endswith('.csv.bz2')]
+        return {"datasets": sorted(datasets)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/wooldridge/data/{dataset_id}")
+async def get_dataset(dataset_id: str):
+    try:
+        df = wooldridge.data(dataset_id)
+        if df is None:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        
+        # Convert to JSON-friendly format
+        # Return first 100 rows
+        data = df.head(100).fillna('').to_dict(orient='records')
+        columns = df.columns.tolist()
+        return {
+            "dataset": dataset_id,
+            "columns": columns,
+            "data": data,
+            "total_rows": len(df)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/files")
 async def list_files():

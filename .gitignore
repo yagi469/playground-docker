@@ -9,6 +9,10 @@ demo/target/
 .idea/
 .vscode/
 
+# Python
+__pycache__/
+venv/
+
 # Backups
 backup_*.tar.gz
 db_backup.sql

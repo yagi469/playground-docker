@@ -58,6 +58,11 @@ export default function RootLayout({
                   Screen to MD
                 </Link>
               </li>
+              <li>
+                <Link href="/wooldridge" className="text-gray-600 hover:text-orange-600 font-medium transition-colors">
+                  Wooldridge
+                </Link>
+              </li>
             </ul>
           </nav>
         </header>
